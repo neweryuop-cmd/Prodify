@@ -5,6 +5,7 @@ import time
 import json
 import requests
 import math
+from PyQt6.QtGui import QIcon
 from datetime import datetime
 from PyQt6.QtCore import Qt, QTimer, QRectF, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize
 from PyQt6.QtGui import QPainter, QColor, QLinearGradient, QBrush, QFont, QPen, QPixmap, QPainterPath
@@ -782,6 +783,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = self.load_config()
 
+        # 设置窗口图标
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(base_dir, "app_icon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
         # 设置窗口属性
         self.setWindowTitle("Prodify - 生产力工具")
         self.setGeometry(100, 100, 1000, 700)
@@ -1090,6 +1097,12 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    # 设置应用程序图标
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    icon_path = os.path.join(base_dir, "app_icon.ico")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
 
     # 在QApplication创建后初始化天气图标
     init_weather_icons()
