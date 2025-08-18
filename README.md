@@ -1,4 +1,11 @@
 # Prodify - 现代化生产力桌面应用
+
+**提醒：**
+
+- 本人高中生，没有太多时间修理各种bug，反馈后可能一两周才会修理更新。
+
+- 第一次开发python软件，粗制滥造的作品勿喷！如果让你感到不愉快，我在此向您说声对不起！
+
 ### 1. 顶部信息区
 
 - 实时天气显示（温度+湿度）
@@ -65,6 +72,8 @@ Prodify/
 2. 安装依赖库：`pip install -r requirements.txt`
     
 3. [获取OpenWeather API密钥](https://openweathermap.org/)（免费注册）
+
+- 一定要把密钥填写到config.json里！否则实时天气不会运行。
     
 
 ### 个性化设置
@@ -74,9 +83,12 @@ Prodify/
 json
 ```
 {
-    "city": "Shanghai", // 改为你所在城市
-    "glass_opacity": 0.3, // 玻璃透明度
-    "border_radius": 25, // 圆角大小
-    "hue_speed": 0.3 // 背景变化速度
+    "api_key": "your api_key here",
+    "city": "北京",
+    "glass_opacity": 0.25,
+    "border_radius": 20,
+    "animation_duration": 300,
+    "hue_speed": 0.5,
+    "alarm_sound": "alarm.wav"
 }
 ```
