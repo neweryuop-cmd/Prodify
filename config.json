@@ -1,0 +1,9 @@
+{
+    "api_key": "your api_key here",
+    "city": "北京",
+    "glass_opacity": 0.25,
+    "border_radius": 20,
+    "animation_duration": 300,
+    "hue_speed": 0.5,
+    "alarm_sound": "alarm.wav"
+}
