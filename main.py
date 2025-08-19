@@ -997,7 +997,7 @@ class MainWindow(QMainWindow):
     def load_config(self):
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
         default_config = {
-            "city": "北京",
+            "city": "山东",
             "glass_opacity": 0.25,
             "border_radius": 20,
             "animation_duration": 300,
@@ -1017,40 +1017,114 @@ class MainWindow(QMainWindow):
             print(f"加载配置文件失败: {e}")
             return default_config
 
-    def update_weather(self):
-        try:
-            # 这里应该使用OpenWeather API，但为了演示使用模拟数据
-            city = self.config.get("city", "北京")
+def update_weather(self):
+    try:
+        # 从配置中获取 API 密钥和城市
+        api_key = self.config.get("api_key", "")
+        city = self.config.get("city", "山东")
+        
+        if not api_key:
+            # 如果没有 API 密钥，使用模拟数据作为后备
+            self.use_fallback_weather_data(city)
+            return
+            
+        # 构建 API 请求 URL
+        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric&lang=zh_cn"
+        
+        # 发送 API 请求
+        response = requests.get(url)
+        response.raise_for_status()  # 如果请求失败则抛出异常
+        
+        # 解析 JSON 响应
+        data = response.json()
+        
+        # 提取天气数据
+        temp = data["main"]["temp"]
+        humidity = data["main"]["humidity"]
+        weather_desc = data["weather"][0]["description"]
+        icon_code = data["weather"][0]["icon"]
+        
+        # 映射图标代码到我们的图标键
+        icon_map = {
+            "01d": "clear",      # 晴天 (白天)
+            "01n": "clear",      # 晴天 (夜晚)
+            "02d": "few_clouds", # 少云 (白天)
+            "02n": "few_clouds", # 少云 (夜晚)
+            "03d": "clouds",     # 散云
+            "03n": "clouds",     # 散云
+            "04d": "clouds",     # 多云
+            "04n": "clouds",     # 多云
+            "09d": "rain",       # 小雨
+            "09n": "rain",       # 小雨
+            "10d": "rain",       # 雨
+            "10n": "rain",       # 雨
+            "11d": "thunderstorm", # 雷暴
+            "11n": "thunderstorm", # 雷暴
+            "13d": "snow",      # 雪
+            "13n": "snow",      # 雪
+            "50d": "mist",      # 雾
+            "50n": "mist"       # 雾
+        }
+        
+        # 获取当前时间用于智能提示
+        hour = datetime.now().hour
+        
+        # 生成智能提示
+        tip = self.generate_tip(weather_desc, hour)
+        
+        # 更新天气部件
+        icon_key = icon_map.get(icon_code, "unknown")
+        self.weather_widget.update_weather(
+            round(temp), humidity, icon_key, f"{city} | {weather_desc}", tip
+        )
+        
+    except requests.exceptions.RequestException as e:
+        print(f"天气API请求失败: {e}")
+        # API请求失败时使用模拟数据作为后备
+        self.use_fallback_weather_data(city)
+    except (KeyError, IndexError) as e:
+        print(f"解析天气数据失败: {e}")
+        # 数据解析失败时使用模拟数据作为后备
+        self.use_fallback_weather_data(city)
+    except Exception as e:
+        print(f"更新天气时发生未知错误: {e}")
+        # 其他错误时使用模拟数据作为后备
+        self.use_fallback_weather_data(city)
 
-            # 模拟天气数据
-            weather_types = ["晴", "多云", "阴", "小雨", "中雨", "大雨", "小雪", "中雪", "大雪", "雾"]
-            weather = random.choice(weather_types)
-            temp = random.randint(-5, 35)
-            humidity = random.randint(30, 90)
-
-            # 生成智能提示
-            hour = datetime.now().hour
-            tip = self.generate_tip(weather, hour)
-
-            # 映射天气到图标键
-            icon_map = {
-                "晴": "clear",
-                "多云": "few_clouds",
-                "阴": "clouds",
-                "小雨": "drizzle",
-                "中雨": "rain",
-                "大雨": "rain",
-                "小雪": "snow",
-                "中雪": "snow",
-                "大雪": "snow",
-                "雾": "mist"
-            }
-            icon_key = icon_map.get(weather, "unknown")
-
-            # 更新天气部件
-            self.weather_widget.update_weather(temp, humidity, icon_key, f"{city} | {weather}", tip)
-        except Exception as e:
-            print(f"更新天气失败: {e}")
+def use_fallback_weather_data(self, city):
+    """当API请求失败时使用模拟天气数据"""
+    try:
+        # 模拟天气数据作为后备
+        weather_types = ["晴", "多云", "阴", "小雨", "中雨", "大雨", "小雪", "中雪", "大雪", "雾"]
+        weather = random.choice(weather_types)
+        temp = random.randint(-5, 35)
+        humidity = random.randint(30, 90)
+        
+        # 生成智能提示
+        hour = datetime.now().hour
+        tip = self.generate_tip(weather, hour)
+        
+        # 映射天气到图标键
+        icon_map = {
+            "晴": "clear",
+            "多云": "few_clouds",
+            "阴": "clouds",
+            "小雨": "drizzle",
+            "中雨": "rain",
+            "大雨": "rain",
+            "小雪": "snow",
+            "中雪": "snow",
+            "大雪": "snow",
+            "雾": "mist"
+        }
+        icon_key = icon_map.get(weather, "unknown")
+        
+        # 更新天气部件
+        self.weather_widget.update_weather(temp, humidity, icon_key, f"{city} | {weather}", tip)
+    except Exception as e:
+        print(f"后备天气数据也失败: {e}")
+        # 如果后备方案也失败，显示错误信息
+        self.weather_widget.update_weather("--", "--", "unknown", "天气数据获取失败", "请检查网络连接或API密钥")
 
     def generate_tip(self, weather, hour):
         if "雨" in weather or "雪" in weather:
