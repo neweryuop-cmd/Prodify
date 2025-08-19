@@ -1,9 +1,9 @@
 {
-    "api_key": "11e34e5a5e82ed287684b3fd66a0eb1d",
-    "city": "山东",
+    "api_key": "填写你的API密钥",
+    "city": "1805481",  // 济南的城市ID
     "glass_opacity": 0.25,
     "border_radius": 20,
     "animation_duration": 300,
-    "hue_speed": 0.5,
+    "hue_speed": 0.3,   // 降低变化速度
     "alarm_sound": "alarm.wav"
 }

@@ -1,17 +1,15 @@
 import sys
 import os
 import random
-import time
 import json
 import requests
-import math
-from PyQt6.QtGui import QIcon
-from datetime import datetime
-from PyQt6.QtCore import Qt, QTimer, QRectF, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize
-from PyQt6.QtGui import QPainter, QColor, QLinearGradient, QBrush, QFont, QPen, QPixmap, QPainterPath
+from PyQt6.QtGui import QIcon, QColor, QBrush, QFont, QPen, QPixmap, QPainterPath, QPainter
+from PyQt6.QtCore import Qt, QTimer, QRectF, QPropertyAnimation, QEasingCurve, pyqtProperty, QSize, QPoint
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QLineEdit, QListWidget,
-                             QListWidgetItem, QAbstractItemView, QSlider, QFrame, QSizePolicy)
+                             QListWidgetItem, QAbstractItemView, QSlider,
+                             QGraphicsDropShadowEffect, QSizePolicy)
+from datetime import datetime
 
 # 天气图标初始化
 WEATHER_ICONS = {}
@@ -783,6 +781,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = self.load_config()
 
+        # 窗口拖动相关变量
+        self.drag_start_position = None
+        self.original_position = None
+
         # 设置窗口图标
         base_dir = os.path.dirname(os.path.abspath(__file__))
         icon_path = os.path.join(base_dir, "app_icon.ico")
@@ -794,81 +796,144 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 1000, 700)
         self.setMinimumSize(800, 600)
 
-        # 设置窗口背景为半透明
+        # 启用窗口透明效果
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setStyleSheet("background-color: rgba(46, 52, 64, 220); border-radius: 15px;")
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
 
         # 创建主控件
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(30, 30, 30, 30)
-        self.main_layout.setSpacing(20)
+        self.main_layout.setContentsMargins(40, 40, 40, 40)
+        self.main_layout.setSpacing(25)
 
-        # 顶部信息区
+        # 添加背景噪点效果
+        self.background_label = QLabel(self.central_widget)
+        self.background_label.setGeometry(0, 0, self.width(), self.height())
+        self.background_label.lower()
+
+        # 创建噪点纹理
+        self.create_noise_texture()
+
+        # 标题栏（自定义关闭按钮和拖动区域）
+        self.title_bar = QWidget(self.central_widget)
+        self.title_bar.setGeometry(0, 0, self.width(), 40)
+        self.title_bar.setStyleSheet("background-color: rgba(30, 33, 45, 0.7);")
+        title_layout = QHBoxLayout(self.title_bar)
+        title_layout.setContentsMargins(10, 0, 10, 0)
+        title_layout.setSpacing(10)
+
+        # 标题
+        self.title_label = QLabel("Prodify")
+        self.title_label.setStyleSheet("font-size: 16px; color: #88C0D0; font-weight: bold;")
+        title_layout.addWidget(self.title_label)
+
+        # 占位符
+        title_layout.addStretch()
+
+        # 最小化按钮
+        self.minimize_btn = QPushButton("—")
+        self.minimize_btn.setFixedSize(30, 30)
+        self.minimize_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(136, 192, 208, 0.3);
+                color: #ECEFF4;
+                border-radius: 15px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(136, 192, 208, 0.5);
+            }
+        """)
+        self.minimize_btn.clicked.connect(self.showMinimized)
+        title_layout.addWidget(self.minimize_btn)
+
+        # 关闭按钮
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setFixedSize(30, 30)
+        self.close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(191, 97, 106, 0.3);
+                color: #ECEFF4;
+                border-radius: 15px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(191, 97, 106, 0.5);
+            }
+        """)
+        self.close_btn.clicked.connect(self.close)
+        title_layout.addWidget(self.close_btn)
+
+        # 顶部信息区 - 玻璃拟态效果
         self.top_info = QWidget()
         self.top_info.setStyleSheet("""
-            background-color: rgba(59, 66, 82, 200);
-            border-radius: 15px;
-            border: 1px solid rgba(136, 192, 208, 0.3);
+            background-color: rgba(30, 33, 45, 0.6);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         """)
+        # 添加内发光和阴影效果
+        self.add_glass_effect(self.top_info)
+
         self.top_layout = QHBoxLayout(self.top_info)
         self.top_layout.setContentsMargins(20, 15, 20, 15)
+        self.top_layout.setSpacing(15)
 
-        # 天气部件
+        # 天气部件 - 添加玻璃效果
         self.weather_widget = WeatherWidget()
+        self.add_glass_effect(self.weather_widget)
 
         # 应用标题和状态
         self.app_title = QLabel("Prodify")
-        self.app_title.setStyleSheet("font-size: 28px; font-weight: bold; color: #88C0D0;")
-
-        self.app_status = QLabel("状态: 运行中")
-        self.app_status.setStyleSheet("font-size: 14px; color: #D8DEE9;")
+        self.app_title.setStyleSheet("""
+            font-size: 28px; 
+            font-weight: bold; 
+            color: #88C0D0;
+            background-color: rgba(30, 33, 45, 0.4);
+            border-radius: 15px;
+            padding: 10px 20px;
+        """)
 
         title_layout = QVBoxLayout()
         title_layout.addWidget(self.app_title)
-        title_layout.addWidget(self.app_status)
         title_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # 时间日期显示 - 美化版
+        # 时间日期显示
         self.time_date_widget = QWidget()
         self.time_date_layout = QVBoxLayout(self.time_date_widget)
         self.time_date_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
 
-        # 时间标签 - 更大的字体
+        # 添加玻璃效果
+        self.time_date_widget.setStyleSheet("""
+            background-color: rgba(30, 33, 45, 0.4);
+            border-radius: 15px;
+            padding: 10px;
+        """)
+        self.add_glass_effect(self.time_date_widget)
+
+        # 时间标签
         self.time_label = QLabel()
         self.time_label.setStyleSheet("""
             font-size: 28px; 
             font-weight: bold; 
             color: #88C0D0;
-            background-color: rgba(76, 86, 106, 0.4);
-            border-radius: 10px;
-            padding: 5px 10px;
         """)
         self.time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # 日期标签 - 更紧凑的设计
+        # 日期标签
         self.date_label = QLabel()
         self.date_label.setStyleSheet("""
             font-size: 16px; 
             color: #D8DEE9;
-            background-color: rgba(76, 86, 106, 0.4);
-            border-radius: 10px;
-            padding: 5px 10px;
-            margin-top: 5px;
         """)
         self.date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # 星期标签 - 新增
+        # 星期标签
         self.week_label = QLabel()
         self.week_label.setStyleSheet("""
             font-size: 16px; 
             color: #A3BE8C;
             font-weight: bold;
-            background-color: rgba(76, 86, 106, 0.4);
-            border-radius: 10px;
-            padding: 5px 10px;
-            margin-top: 5px;
         """)
         self.week_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -880,54 +945,57 @@ class MainWindow(QMainWindow):
         self.update_time_date()
         self.time_timer = QTimer(self)
         self.time_timer.timeout.connect(self.update_time_date)
-        self.time_timer.start(1000)  # 每秒更新一次
+        self.time_timer.start(1000)
 
         self.top_layout.addWidget(self.weather_widget, 1)
         self.top_layout.addLayout(title_layout, 1)
         self.top_layout.addWidget(self.time_date_widget, 1)
 
-        # 中央任务区
+        # 中央任务区 - 玻璃拟态效果
         self.center_widget = QWidget()
         self.center_widget.setStyleSheet("""
-            background-color: rgba(59, 66, 82, 200);
-            border-radius: 15px;
-            border: 1px solid rgba(136, 192, 208, 0.3);
+            background-color: rgba(30, 33, 45, 0.6);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         """)
+        self.add_glass_effect(self.center_widget)
+
         self.center_layout = QHBoxLayout(self.center_widget)
         self.center_layout.setContentsMargins(20, 20, 20, 20)
+        self.center_layout.setSpacing(20)
 
         # 待办事项部件
         self.todo_widget = TodoWidget()
-        self.center_layout.addWidget(self.todo_widget, 1)
-
-        # 分隔线
-        self.separator = QFrame()
-        self.separator.setFrameShape(QFrame.Shape.VLine)
-        self.separator.setFrameShadow(QFrame.Shadow.Sunken)
-        self.separator.setStyleSheet("background-color: #4C566A;")
-        self.center_layout.addWidget(self.separator)
+        self.add_glass_effect(self.todo_widget)
 
         # 番茄钟部件
         self.tomato_timer = TomatoTimer()
+        self.add_glass_effect(self.tomato_timer)
+
+        self.center_layout.addWidget(self.todo_widget, 1)
         self.center_layout.addWidget(self.tomato_timer, 1)
 
-        # 底部工具区 - 改为静态装饰
+        # 底部工具区 - 玻璃拟态效果
         self.bottom_widget = QWidget()
         self.bottom_widget.setStyleSheet("""
-            background-color: rgba(59, 66, 82, 200);
-            border-radius: 15px;
-            border: 1px solid rgba(136, 192, 208, 0.3);
+            background-color: rgba(30, 33, 45, 0.6);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         """)
+        self.add_glass_effect(self.bottom_widget)
+
         self.bottom_layout = QHBoxLayout(self.bottom_widget)
         self.bottom_layout.setContentsMargins(20, 15, 20, 15)
 
-        # 静态装饰文本
+        # 装饰文本
         quotes = [
             "专注当下，成就未来",
             "每一分钟的努力都是积累",
             "今日事，今日毕",
             "小步快跑，持续进步",
-            "专注是最高效的生产力"
+            "专注是最高效的生产力",
+            "完成比完美更重要",
+            "积少成多，聚沙成塔"
         ]
 
         self.decor_label = QLabel(random.choice(quotes))
@@ -935,8 +1003,9 @@ class MainWindow(QMainWindow):
             font-size: 16px;
             font-style: italic;
             color: #88C0D0;
-            padding: 8px;
+            padding: 10px;
             border-radius: 10px;
+            background-color: rgba(30, 33, 45, 0.4);
         """)
         self.decor_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.bottom_layout.addWidget(self.decor_label)
@@ -944,7 +1013,7 @@ class MainWindow(QMainWindow):
         # 添加装饰标签更新定时器
         self.quote_timer = QTimer(self)
         self.quote_timer.timeout.connect(self.update_decor_label)
-        self.quote_timer.start(10000)  # 每10秒更换一次文本
+        self.quote_timer.start(10000)
 
         # 添加到主布局
         self.main_layout.addWidget(self.top_info)
@@ -954,15 +1023,124 @@ class MainWindow(QMainWindow):
         # 天气更新定时器
         self.weather_timer = QTimer(self)
         self.weather_timer.timeout.connect(self.update_weather)
-        # 初始立即更新一次，然后每30分钟更新一次
-        self.update_weather()  # 初始更新
-        self.weather_timer.start(30 * 60 * 1000)  # 30分钟
+        # 立即更新一次天气
+        self.update_weather()
+        # 30分钟更新一次天气
+        self.weather_timer.start(30 * 60 * 1000)
 
-        # 背景动画定时器
+        # 背景动画定时器 - 降低频率减少卡顿
         self.hue = 0
         self.bg_timer = QTimer(self)
         self.bg_timer.timeout.connect(self.update_background)
-        self.bg_timer.start(50)
+        self.bg_timer.start(100)  # 从50ms增加到100ms
+
+        # 窗口阴影效果
+        self.add_window_shadow()
+
+    def mousePressEvent(self, event):
+        """鼠标按下事件 - 用于窗口拖动"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # 记录鼠标位置和窗口原始位置
+            self.drag_start_position = event.globalPosition().toPoint()
+            self.original_position = self.frameGeometry().topLeft()
+
+            # 如果点击在标题栏上，也触发拖动
+            title_bar_rect = self.title_bar.geometry()
+            if title_bar_rect.contains(event.pos()):
+                event.accept()
+            else:
+                event.ignore()
+
+    def mouseMoveEvent(self, event):
+        """鼠标移动事件 - 用于窗口拖动"""
+        if event.buttons() == Qt.MouseButton.LeftButton and self.drag_start_position:
+            # 计算移动距离
+            delta = event.globalPosition().toPoint() - self.drag_start_position
+            # 移动窗口
+            self.move(self.original_position + delta)
+
+    def mouseReleaseEvent(self, event):
+        """鼠标释放事件 - 结束拖动"""
+        self.drag_start_position = None
+
+    def add_glass_effect(self, widget):
+        """添加玻璃拟态效果（内发光和阴影）"""
+        # 外部阴影效果
+        outer_shadow = QGraphicsDropShadowEffect()
+        outer_shadow.setBlurRadius(25)
+        outer_shadow.setColor(QColor(0, 0, 0, 80))
+        outer_shadow.setOffset(0, 5)
+
+        widget.setGraphicsEffect(outer_shadow)
+
+    def add_window_shadow(self):
+        """为整个窗口添加阴影效果"""
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(30)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setOffset(0, 0)
+        self.central_widget.setGraphicsEffect(shadow)
+
+    def create_noise_texture(self):
+        """创建噪点纹理背景（优化性能版本）"""
+        # 如果已经生成，则不再重新生成
+        if hasattr(self, 'noise_pixmap'):
+            self.background_label.setPixmap(self.noise_pixmap)
+            return
+
+        size = self.size()
+        if size.width() <= 0 or size.height() <= 0:
+            return
+
+        pixmap = QPixmap(size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+        # 绘制噪点（降低密度）
+        for i in range(0, size.width(), 3):  # 从2px增加到3px
+            for j in range(0, size.height(), 3):
+                if random.random() > 0.8:  # 降低出现概率
+                    alpha = random.randint(2, 6)  # 降低透明度范围
+                    painter.setPen(QColor(255, 255, 255, alpha))
+                    painter.drawPoint(i, j)
+
+        painter.end()
+        self.noise_pixmap = pixmap
+        self.background_label.setPixmap(self.noise_pixmap)
+
+    def resizeEvent(self, event):
+        """窗口大小改变时重新创建噪点纹理"""
+        super().resizeEvent(event)
+        self.background_label.setGeometry(0, 0, self.width(), self.height())
+        self.title_bar.setGeometry(0, 0, self.width(), 40)
+        self.create_noise_texture()
+
+    def update_background(self):
+        """更新呼吸渐变背景（优化性能）"""
+        # 更新色调
+        self.hue += self.config.get("hue_speed", 0.3) * 0.5  # 降低变化速度
+        if self.hue > 360:
+            self.hue = 0
+
+        # 创建深蓝到深紫的渐变背景
+        base_hue = self.hue / 360
+        color1 = QColor.fromHsvF((base_hue) % 1.0, 0.7, 0.08, 0.9)  # 深蓝
+        color2 = QColor.fromHsvF((base_hue + 0.3) % 1.0, 0.8, 0.12, 0.9)  # 紫色
+        color3 = QColor.fromHsvF((base_hue + 0.7) % 1.0, 0.9, 0.10, 0.9)  # 深紫
+
+        # 应用样式
+        style = f"""
+            background: qlineargradient(
+                x1:0, y1:0, x2:1, y2:1,
+                stop:0 {color1.name(QColor.NameFormat.HexArgb)},
+                stop:0.5 {color2.name(QColor.NameFormat.HexArgb)},
+                stop:1 {color3.name(QColor.NameFormat.HexArgb)}
+            );
+            border-radius: {self.config.get('border_radius', 20)}px;
+        """
+        self.central_widget.setStyleSheet(style)
 
     def update_decor_label(self):
         quotes = [
@@ -994,10 +1172,12 @@ class MainWindow(QMainWindow):
         self.date_label.setText(date_str)
         self.week_label.setText(week_str)
 
-    def load_config(self):
+    @staticmethod
+    def load_config():
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
         default_config = {
-            "city": "山东",
+            "api_key": "your_api_key_here",
+            "city": "1805481",  # 济南的城市ID
             "glass_opacity": 0.25,
             "border_radius": 20,
             "animation_duration": 300,
@@ -1017,114 +1197,80 @@ class MainWindow(QMainWindow):
             print(f"加载配置文件失败: {e}")
             return default_config
 
-def update_weather(self):
-    try:
-        # 从配置中获取 API 密钥和城市
-        api_key = self.config.get("api_key", "")
-        city = self.config.get("city", "山东")
-        
-        if not api_key:
-            # 如果没有 API 密钥，使用模拟数据作为后备
-            self.use_fallback_weather_data(city)
-            return
-            
-        # 构建 API 请求 URL
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric&lang=zh_cn"
-        
-        # 发送 API 请求
-        response = requests.get(url)
-        response.raise_for_status()  # 如果请求失败则抛出异常
-        
-        # 解析 JSON 响应
-        data = response.json()
-        
-        # 提取天气数据
-        temp = data["main"]["temp"]
-        humidity = data["main"]["humidity"]
-        weather_desc = data["weather"][0]["description"]
-        icon_code = data["weather"][0]["icon"]
-        
-        # 映射图标代码到我们的图标键
-        icon_map = {
-            "01d": "clear",      # 晴天 (白天)
-            "01n": "clear",      # 晴天 (夜晚)
-            "02d": "few_clouds", # 少云 (白天)
-            "02n": "few_clouds", # 少云 (夜晚)
-            "03d": "clouds",     # 散云
-            "03n": "clouds",     # 散云
-            "04d": "clouds",     # 多云
-            "04n": "clouds",     # 多云
-            "09d": "rain",       # 小雨
-            "09n": "rain",       # 小雨
-            "10d": "rain",       # 雨
-            "10n": "rain",       # 雨
-            "11d": "thunderstorm", # 雷暴
-            "11n": "thunderstorm", # 雷暴
-            "13d": "snow",      # 雪
-            "13n": "snow",      # 雪
-            "50d": "mist",      # 雾
-            "50n": "mist"       # 雾
-        }
-        
-        # 获取当前时间用于智能提示
-        hour = datetime.now().hour
-        
-        # 生成智能提示
-        tip = self.generate_tip(weather_desc, hour)
-        
-        # 更新天气部件
-        icon_key = icon_map.get(icon_code, "unknown")
-        self.weather_widget.update_weather(
-            round(temp), humidity, icon_key, f"{city} | {weather_desc}", tip
-        )
-        
-    except requests.exceptions.RequestException as e:
-        print(f"天气API请求失败: {e}")
-        # API请求失败时使用模拟数据作为后备
-        self.use_fallback_weather_data(city)
-    except (KeyError, IndexError) as e:
-        print(f"解析天气数据失败: {e}")
-        # 数据解析失败时使用模拟数据作为后备
-        self.use_fallback_weather_data(city)
-    except Exception as e:
-        print(f"更新天气时发生未知错误: {e}")
-        # 其他错误时使用模拟数据作为后备
-        self.use_fallback_weather_data(city)
+    def update_weather(self):
+        try:
+            # 从配置中获取API密钥和城市
+            api_key = self.config.get("api_key", "")
+            city = self.config.get("city", "1805481")  # 默认城市为济南
 
-def use_fallback_weather_data(self, city):
-    """当API请求失败时使用模拟天气数据"""
-    try:
-        # 模拟天气数据作为后备
-        weather_types = ["晴", "多云", "阴", "小雨", "中雨", "大雨", "小雪", "中雪", "大雪", "雾"]
-        weather = random.choice(weather_types)
-        temp = random.randint(-5, 35)
-        humidity = random.randint(30, 90)
-        
-        # 生成智能提示
-        hour = datetime.now().hour
-        tip = self.generate_tip(weather, hour)
-        
-        # 映射天气到图标键
-        icon_map = {
-            "晴": "clear",
-            "多云": "few_clouds",
-            "阴": "clouds",
-            "小雨": "drizzle",
-            "中雨": "rain",
-            "大雨": "rain",
-            "小雪": "snow",
-            "中雪": "snow",
-            "大雪": "snow",
-            "雾": "mist"
-        }
-        icon_key = icon_map.get(weather, "unknown")
-        
-        # 更新天气部件
-        self.weather_widget.update_weather(temp, humidity, icon_key, f"{city} | {weather}", tip)
-    except Exception as e:
-        print(f"后备天气数据也失败: {e}")
-        # 如果后备方案也失败，显示错误信息
-        self.weather_widget.update_weather("--", "--", "unknown", "天气数据获取失败", "请检查网络连接或API密钥")
+            if not api_key or api_key == "your_api_key_here":
+                # 如果没有API密钥或使用默认密钥，显示错误信息
+                self.weather_widget.update_weather("--", "--", "unknown", "天气数据获取失败", "请配置API密钥")
+                return
+
+            # 构建API请求URL - 使用城市ID
+            url = f"https://api.openweathermap.org/data/2.5/weather?id={city}&appid={api_key}&units=metric&lang=zh_cn"
+
+            # 发送API请求
+            response = requests.get(url)
+            response.raise_for_status()  # 如果请求失败则抛出异常
+
+            # 解析JSON响应
+            data = response.json()
+
+            # 提取天气数据
+            temp = data["main"]["temp"]
+            humidity = data["main"]["humidity"]
+            weather_desc = data["weather"][0]["description"]
+            icon_code = data["weather"][0]["icon"]
+            city_name = data["name"]
+
+            # 映射图标代码到我们的图标键
+            icon_map = {
+                "01d": "clear",  # 晴天 (白天)
+                "01n": "clear",  # 晴天 (夜晚)
+                "02d": "few_clouds",  # 少云 (白天)
+                "02n": "few_clouds",  # 少云 (夜晚)
+                "03d": "clouds",  # 散云
+                "03n": "clouds",  # 散云
+                "04d": "clouds",  # 多云
+                "04n": "clouds",  # 多云
+                "09d": "rain",  # 小雨
+                "09n": "rain",  # 小雨
+                "10d": "rain",  # 雨
+                "10n": "rain",  # 雨
+                "11d": "thunderstorm",  # 雷暴
+                "11n": "thunderstorm",  # 雷暴
+                "13d": "snow",  # 雪
+                "13n": "snow",  # 雪
+                "50d": "mist",  # 雾
+                "50n": "mist"  # 雾
+            }
+
+            # 获取当前时间用于智能提示
+            hour = datetime.now().hour
+
+            # 生成智能提示
+            tip = self.generate_tip(weather_desc, hour)
+
+            # 更新天气部件
+            icon_key = icon_map.get(icon_code, "unknown")
+            self.weather_widget.update_weather(
+                round(temp), humidity, icon_key, f"{city_name} | {weather_desc}", tip
+            )
+
+        except requests.exceptions.RequestException as e:
+            print(f"天气API请求失败: {e}")
+            # API请求失败时显示错误信息
+            self.weather_widget.update_weather("--", "--", "unknown", "天气数据获取失败", f"网络错误: {str(e)}")
+        except (KeyError, IndexError) as e:
+            print(f"解析天气数据失败: {e}")
+            # 数据解析失败时显示错误信息
+            self.weather_widget.update_weather("--", "--", "unknown", "天气数据解析失败", "请检查API返回格式")
+        except Exception as e:
+            print(f"更新天气时发生未知错误: {e}")
+            # 其他错误时显示错误信息
+            self.weather_widget.update_weather("--", "--", "unknown", "天气数据错误", f"错误: {str(e)}")
 
     def generate_tip(self, weather, hour):
         if "雨" in weather or "雪" in weather:
@@ -1143,30 +1289,6 @@ def use_fallback_weather_data(self, city):
             return "雾天请注意休息，避免过度用眼！"
         else:
             return "保持专注，提高效率！"
-
-    def update_background(self):
-        # 更新背景色调 - 更柔和的渐变
-        self.hue += self.config.get("hue_speed", 0.3)
-        if self.hue > 360:
-            self.hue = 0
-
-        # 创建更柔和的渐变背景
-        base_hue = self.hue / 360
-        color1 = QColor.fromHsvF(base_hue, 0.15, 0.15, 0.8)
-        color2 = QColor.fromHsvF((base_hue + 0.1) % 1.0, 0.12, 0.18, 0.8)
-        color3 = QColor.fromHsvF((base_hue + 0.2) % 1.0, 0.10, 0.20, 0.8)
-
-        # 应用样式
-        style = f"""
-            background: qlineargradient(
-                x1:0, y1:0, x2:1, y2:1,
-                stop:0 {color1.name(QColor.NameFormat.HexArgb)},
-                stop:0.5 {color2.name(QColor.NameFormat.HexArgb)},
-                stop:1 {color3.name(QColor.NameFormat.HexArgb)}
-            );
-            border-radius: {self.config.get('border_radius', 20)}px;
-        """
-        self.central_widget.setStyleSheet(style)
 
 
 if __name__ == "__main__":
